@@ -1,7 +1,5 @@
 local MOD_NAME = "RT-DotReticle"
 
--- Change this value to make the dot larger or smaller.
-local DOT_SIZE = 4.0
 local updateScheduled = false
 
 local function IsUsableObject(object)
@@ -31,7 +29,6 @@ local function ApplyDotReticle()
                 -- Zeroing the bar geometry removes the lines, while hiding each
                 -- directional image also removes its spread indicator/dot.
                 widget:SetBarSize(0.0, 0.0)
-                widget:SetDotSize(DOT_SIZE)
 
                 local directionalImages = {
                     widget.Image_Top,
@@ -83,4 +80,4 @@ LoopAsync(250, function()
     return false
 end)
 
-print("[" .. MOD_NAME .. "] Loaded (dot size " .. tostring(DOT_SIZE) .. ")")
+print("[" .. MOD_NAME .. "] Loaded")
