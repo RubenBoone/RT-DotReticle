@@ -2,6 +2,7 @@ local MOD_NAME = "RT-DotReticle"
 
 -- Change this value to make the dot larger or smaller.
 local DOT_SIZE = 4.0
+local updateScheduled = false
 
 local function IsUsableObject(object)
     if not object then
@@ -53,10 +54,32 @@ local function ApplyDotReticle()
     return applied
 end
 
+local function ScheduleDotReticleUpdate()
+    if updateScheduled then
+        return
+    end
+
+    updateScheduled = true
+
+    local scheduled = pcall(function()
+        ExecuteInGameThread(function()
+            -- UObject lookup, validity checks, property access, and UFunction
+            -- calls must all happen on Unreal's game thread.
+            pcall(ApplyDotReticle)
+            updateScheduled = false
+        end)
+    end)
+
+    if not scheduled then
+        updateScheduled = false
+    end
+end
+
 -- Reticle widgets are recreated when entering a heist and may be refreshed when
--- HUD settings or weapons change, so keep the visual override applied.
-LoopAsync(100, function()
-    ApplyDotReticle()
+-- HUD settings or weapons change, so periodically schedule a safe game-thread
+-- refresh. The guard prevents updates from accumulating in the game-thread queue.
+LoopAsync(250, function()
+    ScheduleDotReticleUpdate()
     return false
 end)
 
