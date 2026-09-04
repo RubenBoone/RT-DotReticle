@@ -4,12 +4,14 @@ local MOD_NAME = "RT-DotReticle"
 
 local updateScheduled = false
 local sliderPatched = false
-local widgetOpacity = {}
+local cachedSettings = nil
 
 local CROSSHAIR_CONSTRUCT =
     "/Game/UI/Widgets/HUD/Generic/WBP_UI_Widget_CrosshairVisuals.WBP_UI_Widget_CrosshairVisuals_C:Construct"
 local CROSSHAIR_UPDATE_SETTINGS =
     "/Game/UI/Widgets/HUD/Generic/WBP_UI_Widget_CrosshairVisuals.WBP_UI_Widget_CrosshairVisuals_C:UpdateSettings"
+local CROSSHAIR_SET_BAR_SIZE =
+    "/Game/UI/Widgets/HUD/Generic/WBP_UI_Widget_CrosshairVisuals.WBP_UI_Widget_CrosshairVisuals_C:SetBarSize"
 
 local function IsUsableObject(object)
     if not object then
@@ -24,6 +26,18 @@ local function IsUsableObject(object)
 end
 
 local function GetCrosshairBarLength()
+    if IsUsableObject(cachedSettings) then
+        local ok, length = pcall(function()
+            return tonumber(cachedSettings.CrosshairsBarLength)
+        end)
+
+        if ok and length ~= nil then
+            return length
+        end
+
+        cachedSettings = nil
+    end
+
     local settingsObjects = FindAllOf("SBZGameUserSettings")
 
     if not settingsObjects then
@@ -43,6 +57,7 @@ local function GetCrosshairBarLength()
             end)
 
             if ok and length then
+                cachedSettings = settings
                 return length
             end
         end
@@ -170,10 +185,6 @@ local function ApplyToWidget(widget, barLength)
 
     local directionalOpacity = barLength <= 0.001 and 0.0 or 1.0
 
-    if widgetOpacity[widget] == directionalOpacity then
-        return true
-    end
-
     local ok = pcall(function()
         local directionalImages = {
             widget.Image_Top,
@@ -184,32 +195,37 @@ local function ApplyToWidget(widget, barLength)
 
         for _, image in ipairs(directionalImages) do
             if IsUsableObject(image) then
-                image:SetRenderOpacity(directionalOpacity)
+                local opacityOk, currentOpacity = pcall(function()
+                    return tonumber(image:GetRenderOpacity())
+                end)
+
+                if not opacityOk
+                    or currentOpacity == nil
+                    or math.abs(currentOpacity - directionalOpacity) > 0.001
+                then
+                    image:SetRenderOpacity(directionalOpacity)
+                end
             end
         end
     end)
 
-    if ok then
-        widgetOpacity[widget] = directionalOpacity
-    end
-
     return ok
 end
 
-local function HandleCrosshairUpdate(context, settingsParam)
+local function HandleCrosshairUpdate(context)
     local widget = nil
-    local barLength = nil
 
     pcall(function()
         widget = context:get()
     end)
 
-    pcall(function()
-        local settings = settingsParam:get()
-        barLength = tonumber(settings.CrosshairsBarLength)
-    end)
+    if not IsUsableObject(widget) then
+        return
+    end
 
-    ApplyToWidget(widget, barLength)
+    -- These are Blueprint functions, so UE4SS invokes this callback after the
+    -- game function. Reading the live value here handles both zero and restore.
+    ApplyToWidget(widget, GetCrosshairBarLength())
 end
 
 local function ScheduleUpdate()
@@ -241,8 +257,12 @@ function DotReticle.Init()
             ScheduleUpdate()
         end)
 
-        RegisterHook(CROSSHAIR_UPDATE_SETTINGS, function(context, settingsParam)
-            HandleCrosshairUpdate(context, settingsParam)
+        RegisterHook(CROSSHAIR_UPDATE_SETTINGS, function(context)
+            HandleCrosshairUpdate(context)
+        end)
+
+        RegisterHook(CROSSHAIR_SET_BAR_SIZE, function(context)
+            HandleCrosshairUpdate(context)
         end)
     end)
 
