@@ -4,6 +4,12 @@ local MOD_NAME = "RT-DotReticle"
 
 local updateScheduled = false
 local sliderPatched = false
+local widgetOpacity = {}
+
+local CROSSHAIR_CONSTRUCT =
+    "/Game/UI/Widgets/HUD/Generic/WBP_UI_Widget_CrosshairVisuals.WBP_UI_Widget_CrosshairVisuals_C:Construct"
+local CROSSHAIR_UPDATE_SETTINGS =
+    "/Game/UI/Widgets/HUD/Generic/WBP_UI_Widget_CrosshairVisuals.WBP_UI_Widget_CrosshairVisuals_C:UpdateSettings"
 
 local function IsUsableObject(object)
     if not object then
@@ -157,6 +163,55 @@ local function ApplyDotReticle()
     return applied
 end
 
+local function ApplyToWidget(widget, barLength)
+    if not IsUsableObject(widget) or barLength == nil then
+        return false
+    end
+
+    local directionalOpacity = barLength <= 0.001 and 0.0 or 1.0
+
+    if widgetOpacity[widget] == directionalOpacity then
+        return true
+    end
+
+    local ok = pcall(function()
+        local directionalImages = {
+            widget.Image_Top,
+            widget.Image_Right,
+            widget.Image_Bottom,
+            widget.Image_Left,
+        }
+
+        for _, image in ipairs(directionalImages) do
+            if IsUsableObject(image) then
+                image:SetRenderOpacity(directionalOpacity)
+            end
+        end
+    end)
+
+    if ok then
+        widgetOpacity[widget] = directionalOpacity
+    end
+
+    return ok
+end
+
+local function HandleCrosshairUpdate(context, settingsParam)
+    local widget = nil
+    local barLength = nil
+
+    pcall(function()
+        widget = context:get()
+    end)
+
+    pcall(function()
+        local settings = settingsParam:get()
+        barLength = tonumber(settings.CrosshairsBarLength)
+    end)
+
+    ApplyToWidget(widget, barLength)
+end
+
 local function ScheduleUpdate()
     if updateScheduled then
         return
@@ -180,13 +235,34 @@ local function ScheduleUpdate()
 end
 
 function DotReticle.Init()
-    -- Reticle widgets are recreated when entering a heist and refreshed when HUD
-    -- settings or weapons change, so periodically schedule a safe game-thread
-    -- refresh. The guard prevents updates accumulating in the game-thread queue.
-    LoopAsync(250, function()
-        ScheduleUpdate()
-        return false
+    -- Update only when Unreal creates or refreshes a crosshair widget.
+    local hooksRegistered = pcall(function()
+        RegisterHook(CROSSHAIR_CONSTRUCT, function()
+            ScheduleUpdate()
+        end)
+
+        RegisterHook(CROSSHAIR_UPDATE_SETTINGS, function(context, settingsParam)
+            HandleCrosshairUpdate(context, settingsParam)
+        end)
     end)
+
+    if not hooksRegistered then
+        print("[" .. MOD_NAME .. "] Could not register crosshair update hooks")
+    end
+
+    local patchAttempts = 0
+
+    LoopAsync(500, function()
+        patchAttempts = patchAttempts + 1
+
+        ExecuteInGameThread(function()
+            PatchBarLengthSlider()
+        end)
+
+        return sliderPatched or patchAttempts >= 20
+    end)
+
+    ScheduleUpdate()
 
     print("[" .. MOD_NAME .. "] Loaded")
 end
